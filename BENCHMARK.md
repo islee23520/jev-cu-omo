@@ -56,3 +56,36 @@ Known quality limit remains unchanged: both models miss the same two single-step
 P0 intents in aggregate (10/12), so the planner/decider split and exact verify gate
 remain required. Local confidence is a non-calibrated compatibility value; risk,
 sensitive-label, background-delivery and postcondition gates remain authoritative.
+
+## Docker backend (2026-09-20 cutover)
+
+The `qwen3:8b` backend moved from the native Windows Ollama process to the
+official Docker image `ollama/ollama:0.32.11` (Linux amd64 manifest
+`sha256:acc1d61dc30525ecbe11c811462637f474ce9b1c8db80321d1cee81e3ffc7894`)
+under Docker Compose on the RTX 4080 host. GPU access was proven with a real
+CUDA container probe. Staging ran on `127.0.0.1:11436` first; the one-time
+cutover stopped only the dedicated native pid (51800, identity-verified against
+`server.pid` and the native executable path), set the deployment-only
+`.env` to `QWEN_PORT=11435`, and recreated the container. Runbook and rollback:
+`server/README.md`.
+
+Post-cutover results against `127.0.0.1:11435` (container-owned, Mac via SSH
+tunnel):
+
+| Metric | Value |
+| --- | --- |
+| P0 accuracy | 10/12 × 3 repeats (identical to native baseline) |
+| P0 p50 / p95 / mean latency | 775 / 849 / 777 ms |
+| P0 input tokens (36 cases) | 18,795 |
+| GUI five tasks | 5/5 done + verified, foreground unchanged (VSCode) |
+| Automated tests | 58/58 pass |
+| `/api/ps` residency | qwen3:8b, 5.58 GB, `size_vram` = `size` (100% GPU) |
+| Model digest | `500a1f067a9f` (byte-identical copy of the native model) |
+
+Port 11435 is published loopback-only (`HostIp 127.0.0.1`) and owned by Docker;
+the pre-existing native instance on 11434 was untouched. Native rollback assets
+remain intact: `E:\git\jev-cu-qwen\models` (14.5 GB, incl. `qwen3:14b`),
+`start-ollama.ps1`, `native-start-backup.tar`, `server.pid`. P0 p50 rose from
+574 ms (native) to 775 ms (container) with unchanged decisions, so the verdict
+above is unchanged. The first request after a container start pays a model load
+(9–42 s observed) before the ~1.4 s warm decisions.

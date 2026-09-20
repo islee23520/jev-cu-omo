@@ -29,6 +29,18 @@ omo install /absolute/path/to/Jev-cu
 `npm test` 包含上游和 OmO 测试；`npm run p0` 仍调用真实 Jev API，任何错误或错误选择
 都会非零退出。单元测试或模拟决策不能代替真实 API 和 macOS GUI 验证。
 
+## Windows Docker Qwen backend
+
+The self-hosted `qwen3:8b` backend uses official Ollama under Docker Compose with
+an NVIDIA GPU reservation. The Windows host publishes only `127.0.0.1:11435`;
+Mac clients use the existing SSH tunnel. Native Ollama models remain untouched
+for rollback. See [staging, cutover and rollback](server/README.md) and the
+measured results in [BENCHMARK.md](BENCHMARK.md) / [QA.md](QA.md).
+
+This changes service management, not the OmO provider/configuration, model,
+or decision policy. Qwen is not TypeSafe Jev; its known P0 baseline is 10/12,
+not a perfect score or permission to bypass exact postcondition verification.
+
 ## 上游 Codex 路径
 
 把 Computer Use 的「下一步点哪里」交给 Jev（TypeSafe System One）：Jev 从界面文字候选中选元素、动作、完成度与风险，Codex Computer Use 负责读取界面与执行，本地策略门槛拦截敏感操作。只传文字，不传截图。

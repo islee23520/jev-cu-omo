@@ -82,3 +82,27 @@ Docker 容器列表也没有 Jev-like 容器。旧源码目录和 Docker 镜像�
 omo-jevlike-router 仓库未归档。不能把“当前无运行路径”称为“已彻底清理”。
 
 当前 fork 代码不依赖 Jev-like。只有完整验收通过后才执行约定的生产替换与清理。
+
+## Windows Docker 后端切换验证（2026-09-20）
+
+目标：Docker Compose 容器接管 `127.0.0.1:11435` 的 `qwen3:8b` 服务，原生专用
+进程停止但回滚资源完整保留。独立审计（docker-qwen-migration-gate-review）确认
+staging 全部通过但切换未执行；本次按 `server/README.md` 的 cutover 块原样执行并
+逐项复核。证据在 gitignored `runs/` 与本地 evidence 目录。
+
+| 项目 | 命令或实际入口 | 观测 |
+| --- | --- | --- |
+| 切换前身份核验 | `Get-NetTCPConnection -LocalPort 11435` + `Get-Process -Id <server.pid>` | 监听 pid 51800 == `server.pid`，路径为 `%LOCALAPPDATA%\Programs\Ollama\ollama.exe`，无身份不符，继续切换 |
+| 停止原生专用进程 | cutover 脚本内 `Stop-Process -Id 51800`（仅该 pid，绝不按进程名全杀） | 复查 pid 51800 ABSENT_OK；预存 11434 原生实例（pid 84436）存活未动 |
+| 容器接管 | `.env` 写 `QWEN_PORT=11435` + `docker compose up -d --wait` | `cutover.exit=0`，容器 6.8 s Healthy，`127.0.0.1:11435->11434/tcp` |
+| 端口与 GPU 归属 | `netstat -ano`、`docker inspect`、`tasklist` | 11435 owner = `com.docker.backend`(25076)；`HostIp 127.0.0.1` 仅回环；DeviceRequests = nvidia/all/gpu；进程表中仅剩 84436 一个 ollama.exe |
+| API 复核 | Mac 隧道 `curl -i /api/tags`、结构化 `/api/chat`、`/api/ps` | HTTP 200；qwen3:8b digest `500a1f067a9f`；结构化 JSON 决策合法；`size_vram` == `size`（100% GPU，5.58 GB） |
+| 自动测试 | `npm test` | 58 passed，0 failed，exit 0 |
+| P0 基线 | `BENCH_MODELS=qwen3:8b JEV_CU_QWEN_URL=http://127.0.0.1:11435 node runs/benchmark-p0.mjs` | 3 轮均 10/12（与原生基线一致），p50 775 ms |
+| GUI 五任务 | `JEV_CU_QA_CALC_PID=4353 JEV_CU_QWEN_URL=http://127.0.0.1:11435 node runs/local-qwen-five-tasks.mjs` | 5/5 done + verified（计算器 4 项 + TextEdit set_value），前台保持 VSCode→VSCode |
+| 回滚保留 | `models` 14.5 GB（14b+8b）、`start-ollama.ps1`、`native-start-backup.tar`、`server.pid` | 全部在位；`docker-data` 为 sha256 逐块校验的独立副本（5.2 GB）；未删除任何数据 |
+
+镜像 `ollama/ollama:0.32.11@sha256:acc1d61dc30525ecbe11c811462637f474ce9b1c8db80321d1cee81e3ffc7894`；
+模型卷为 bind mount `E:\git\jev-cu-qwen\docker-data`；容器内 `OLLAMA_HOST=0.0.0.0:11434`
+不对外暴露宿主端口。原生 p50 574 ms → 容器 775 ms，决策质量不变。回滚步骤见
+`server/README.md`（compose stop、端口回 11436、`start-ollama.ps1` 重启原生）。
