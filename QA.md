@@ -67,6 +67,14 @@
 - `calculator-before.png`、`calculator-after.png`
 - `omo-sandbox/` 独立配置，只连接已有 CuaDriver socket，不修改服务配置
 
+## 8B / 14B benchmark
+
+See [BENCHMARK.md](BENCHMARK.md). Both models produced identical P0 accuracy
+(10/12 on all three repeats) and passed the same real macOS GUI suite 5/5.
+Qwen3-8B remains the default because it is about 20% faster on P0 and uses
+5.58 GB versus 9.65 GB VRAM; 14B's 3.7% GUI wall-time lead is CUA-overhead scale
+and came with no decision-quality improvement.
+
 ## Jev-like 处置状态
 
 检查过的生产 OmO 两处 extensions 目录与活动配置中未找到 Jev-like 引用，Windows
