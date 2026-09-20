@@ -155,6 +155,7 @@ test("sanitizeLabel 去掉长 URL 并限长", () => {
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { runTask } from "../scripts/loop.mjs";
 
 async function mockRun(options) {
@@ -206,3 +207,102 @@ test("未知目标和缺失概率不放行", () => {
   assert.equal(decision.targetIndex, null);
   assert.equal(evaluatePolicy({ decision, app: "Calendar" }).verdict, "escalate");
 });
+
+const NEXT_MONTH = { action: "click_element", targetIndex: 58, targetLabel: "next month", confidence: 1, risk: 0, done: 0 };
+
+test("click_element 使用策略批准的索引，不受 resources.at 覆盖", async () => {
+  const clicks = [];
+  await mockRun({
+    driver: { bind: async () => {}, observe: async () => CALENDAR_AX, click: async (...args) => { clicks.push(args); } },
+    dryRun: false, maxSteps: 1, decide: async () => NEXT_MONTH,
+    resources: { at: [999, 999], mouseButton: "right" },
+  });
+  assert.deepEqual(clicks, [[58, { mouseButton: "right" }]]);
+});
+
+for (const scenario of [
+  { name: "连续两次无变化即停止", decisions: [NEXT_MONTH, NEXT_MONTH], steps: 2 },
+  { name: "目标变化重置连续次数", decisions: [NEXT_MONTH, { ...NEXT_MONTH, targetIndex: 56 }, NEXT_MONTH, NEXT_MONTH], steps: 4 },
+  { name: "动作变化重置连续次数", decisions: [NEXT_MONTH, { ...NEXT_MONTH, action: "press_key" }, NEXT_MONTH, NEXT_MONTH], steps: 4 },
+  { name: "界面变化重置连续次数", decisions: [NEXT_MONTH], changeAt: 2, steps: 4 },
+  { name: "交替目标不累计无效次数", decisions: [NEXT_MONTH, { ...NEXT_MONTH, targetIndex: 56 }, NEXT_MONTH, { ...NEXT_MONTH, targetIndex: 56 }], steps: 4, maxSteps: 4, status: "max_steps" },
+]) {
+  test(`无效动作：${scenario.name}`, async () => {
+    let actions = 0;
+    let decisions = 0;
+    let ax = CALENDAR_AX;
+    const act = async () => {
+      actions++;
+      if (actions === scenario.changeAt) ax = ax.replace("September 2026", "October 2026");
+    };
+    const result = await mockRun({
+      driver: { bind: async () => {}, observe: async () => ax, click: act, pressKey: act },
+      dryRun: false, maxSteps: scenario.maxSteps ?? 6, verify: () => false,
+      decide: async () => scenario.decisions[Math.min(decisions++, scenario.decisions.length - 1)],
+    });
+    assert.equal(actions, scenario.steps);
+    assert.equal(decisions, scenario.steps);
+    assert.equal(result.steps, scenario.steps);
+    assert.equal(result.status, scenario.status ?? "stop");
+  });
+}
+
+test("实际核验成功优先于第二次无变化的停止", async () => {
+  for (const maxSteps of [2, 5]) {
+    let clicks = 0;
+    const result = await mockRun({
+      driver: { bind: async () => {}, observe: async () => CALENDAR_AX, click: async () => { clicks++; } },
+      dryRun: false, maxSteps, decide: async () => NEXT_MONTH,
+      verify: async () => clicks === 2,
+    });
+    assert.equal(clicks, 2);
+    assert.equal(result.steps, 2);
+    assert.equal(result.status, "done");
+    assert.equal(result.verified, true);
+  }
+});
+
+for (const scenario of [
+  { name: "缺少密钥", index: null, accuracy: "0/1", status: 1 },
+  { name: "选择错误", index: 58, accuracy: "0/1", status: 1 },
+  { name: "全部命中", index: 56, accuracy: "1/1", status: 0 },
+]) {
+  test(`P0 退出码：${scenario.name}`, () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "jev-p0-test-"));
+    try {
+      fs.mkdirSync(path.join(repo, "scripts"));
+      for (const file of ["p0-eval.mjs", "loop.mjs", "jev-decide.mjs", "qwen-decide.mjs", "policy.mjs"]) {
+        fs.copyFileSync(new URL(`../scripts/${file}`, import.meta.url), path.join(repo, "scripts", file));
+      }
+      fs.cpSync(new URL("../fixtures/", import.meta.url), path.join(repo, "fixtures"), { recursive: true });
+      // 不继承环境或复制 .env.local；fetch 只返回固定响应，绝不访问网络。
+      const bootstrap = `
+        globalThis.fetch = async () => {
+          if (${scenario.index === null}) throw new Error("测试禁止网络请求");
+          return { ok: true, json: async () => ({ answers: {
+            target: { choice: "i${scenario.index}", confidence: 1 },
+            action: { choice: "click_element" }, done: { noul: 0 }, risk: { noul: 0 }
+          } }) };
+        };
+        process.argv = [process.execPath, "scripts/p0-eval.mjs", "--limit", "1"];
+        await import("./scripts/p0-eval.mjs");
+      `;
+      const result = spawnSync(process.execPath, ["--input-type=module", "--eval", bootstrap], {
+        cwd: repo, env: scenario.index === null ? {} : { TYPESAFE_API_KEY: "test-only" },
+        encoding: "utf8", timeout: 10_000,
+      });
+      assert.ifError(result.error);
+      assert.equal(result.signal, null);
+      assert.equal(result.stderr, "");
+      const reports = fs.readdirSync(path.join(repo, "runs"));
+      assert.equal(reports.length, 1);
+      const report = JSON.parse(fs.readFileSync(path.join(repo, "runs", reports[0]), "utf8"));
+      assert.equal(report.accuracy, scenario.accuracy);
+      assert.equal(report.rows.length, 1);
+      if (scenario.index === null) assert.match(report.rows[0].got, /ERR .*TYPESAFE_API_KEY/);
+      assert.equal(result.status, scenario.status, result.stdout);
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+}

@@ -208,6 +208,7 @@ export async function runTask({
   await driver.bind(appName);
   let observation = await driver.observe({ full: true });
   const recentActions = [];
+  let previousIneffectiveAction = null;
   const startedAt = Date.now();
 
   for (let step = 1; step <= maxSteps; step++) {
@@ -311,6 +312,13 @@ export async function runTask({
     recentActions.push(`${decision.action} i${decision.targetIndex} → ${noChange ? "no change" : "changed"}`);
     emit(`         └ 动作 ${actMs}ms · ${noChange ? "界面无变化" : "界面已变化"}`);
     record({ event: "action", step, actMs, noChange, action: decision.action, targetIndex: decision.targetIndex });
+    if (noChange && previousIneffectiveAction?.action === decision.action && previousIneffectiveAction.targetIndex === decision.targetIndex) {
+      if (verify && await verify(observation)) {
+        return finish("done", { steps: step, tracePath, verified: true, elapsedMs: Date.now() - startedAt });
+      }
+      return finish("stop", { steps: step, tracePath, message: "连续两次相同动作和目标未改变界面", elapsedMs: Date.now() - startedAt });
+    }
+    previousIneffectiveAction = noChange ? { action: decision.action, targetIndex: decision.targetIndex } : null;
   }
 
   if (verify && await verify(observation)) {
@@ -328,7 +336,6 @@ export async function runTask({
 async function executeAction(driver, decision, resources) {
   switch (decision.action) {
     case "click_element":
-      if (Array.isArray(resources.at)) return driver.click(resources.at);
       return driver.click(decision.targetIndex, resources.mouseButton ? { mouseButton: resources.mouseButton } : undefined);
     case "click_at":
       return driver.click(resources.at);

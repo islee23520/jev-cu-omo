@@ -9,17 +9,21 @@
  * 用法：
  *   node scripts/p0-eval.mjs            # 跑全部用例
  *   node scripts/p0-eval.mjs --limit 3  # 只跑前 3 条
+ *   node scripts/p0-eval.mjs --local   # 用自托管 Qwen（JEV_CU_QWEN_URL，默认 127.0.0.1:11435）
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseAX, selectCandidates, buildContext } from "./loop.mjs";
 import { decide } from "./jev-decide.mjs";
+import { decideLocal } from "./qwen-decide.mjs";
 
 const PROJECT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CASES_PATH = path.join(PROJECT_DIR, "fixtures", "p0", "cases.json");
 const limitArg = process.argv.indexOf("--limit");
 const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : Infinity;
+const useLocal = process.argv.includes("--local");
+const decideFn = useLocal ? decideLocal : decide;
 
 const cases = JSON.parse(fs.readFileSync(CASES_PATH, "utf8")).slice(0, limit);
 if (!cases.length) {
@@ -35,7 +39,7 @@ for (const c of cases) {
   let decision;
   let error = null;
   try {
-    decision = await decide({
+    decision = await decideFn({
       goal: c.goal,
       app: c.app,
       candidates,
@@ -87,3 +91,4 @@ fs.mkdirSync(reportDir, { recursive: true });
 const reportPath = path.join(reportDir, `p0-report-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
 fs.writeFileSync(reportPath, JSON.stringify({ generatedAt: new Date().toISOString(), accuracy: `${ok.length}/${rows.length}`, p50Ms: p50, tokens, costUsd: cost, rows }, null, 2));
 console.log(`报告：${reportPath}`);
+process.exitCode = ok.length === rows.length ? 0 : 1;

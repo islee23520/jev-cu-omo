@@ -1,4 +1,35 @@
-# Jev-cu
+# Jev-cu for OmO
+
+本仓库是 [Sac-Y/Jev-cu](https://github.com/Sac-Y/Jev-cu) 的正式 fork，
+增加 OmO 扩展与 macOS cua-driver 适配。不是 Jev-like 模型，也没有 Jev-like 回退。
+
+## OmO 路径
+
+先安装现有 cua-driver 并授予辅助功能和屏幕录制权限。TypeSafe 必须有可用的真实 API key；
+目前账号可能需要邀请。将 key 放在仓库外 `~/.config/jev-cu/typesafe.env`，权限 600，
+或设置 `TYPESAFE_API_KEY` / `JEV_CU_ENV_FILE`，不提交密钥。
+
+隔离试运行：
+
+```bash
+OMO_CODING_AGENT_DIR=/absolute/isolated/omo omo --no-extensions --no-skills \
+  --no-context-files -e ./extension/jev-cu.mjs --skill ./skill/jev-use
+```
+
+扩展注册 `jev_cu`，提供 `observe` 和 `run`；参见
+[OmO 运行说明](skill/jev-use/references/runtime.md)。目标窗口由调用者明确选择，
+默认 dry-run，实际执行必须提供精确结果核验。浏览器任务继续使用 Aside。
+
+通过 [ToDo.md](ToDo.md) 的全部质量门槛后，才可注册生产包：
+
+```bash
+omo install /absolute/path/to/Jev-cu
+```
+
+`npm test` 包含上游和 OmO 测试；`npm run p0` 仍调用真实 Jev API，任何错误或错误选择
+都会非零退出。单元测试或模拟决策不能代替真实 API 和 macOS GUI 验证。
+
+## 上游 Codex 路径
 
 把 Computer Use 的「下一步点哪里」交给 Jev（TypeSafe System One）：Jev 从界面文字候选中选元素、动作、完成度与风险，Codex Computer Use 负责读取界面与执行，本地策略门槛拦截敏感操作。只传文字，不传截图。
 
