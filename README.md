@@ -257,6 +257,19 @@ The JSON result reports the selected preset, decision-model latency, Blender
 application time, and `visualReview: "required"`. The command edits only the
 output file and preserves the input file.
 
+For a vision-reviewed boundary, use the experimental autonomous variant. A
+vision reviewer defines the locked region and falloff band, while the decision
+backend chooses the bounded morph operation after each structured observation:
+
+```bash
+JEV_CU_QWEN_URL=http://127.0.0.1:11435 \
+JEV_CU_QWEN_MODEL=qwen3:8b \
+npm run blender-vision-autonomous -- input.blend output.blend
+```
+
+This path preserves the connected topology, never cuts or bridges the mesh,
+and marks the result as requiring final human visual approval.
+
 Repository layout:
 
 ```text
