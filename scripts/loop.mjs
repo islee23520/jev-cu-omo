@@ -98,7 +98,7 @@ export function selectCandidates(elements, goal = "", { max = 40 } = {}) {
   const tokens = String(goal)
     .toLowerCase()
     .split(/[^a-z0-9\u4e00-\u9fff]+/)
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 2 || /^\d$/.test(t));
 
   const scored = [];
   for (const el of elements) {

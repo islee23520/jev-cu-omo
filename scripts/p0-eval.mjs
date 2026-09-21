@@ -17,13 +17,17 @@ import { fileURLToPath } from "node:url";
 import { parseAX, selectCandidates, buildContext } from "./loop.mjs";
 import { decide } from "./jev-decide.mjs";
 import { decideLocal } from "./qwen-decide.mjs";
+import { decideLaya, shutdownLayaWorkers } from "./laya-decide.mjs";
 
 const PROJECT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CASES_PATH = path.join(PROJECT_DIR, "fixtures", "p0", "cases.json");
 const limitArg = process.argv.indexOf("--limit");
 const limit = limitArg > -1 ? Number(process.argv[limitArg + 1]) : Infinity;
+const candidateMaxArg = process.argv.indexOf("--candidate-max");
+const candidateMax = candidateMaxArg > -1 ? Number(process.argv[candidateMaxArg + 1]) : null;
 const useLocal = process.argv.includes("--local");
-const decideFn = useLocal ? decideLocal : decide;
+const useLaya = process.argv.includes("--laya");
+const decideFn = useLaya ? decideLaya : useLocal ? decideLocal : decide;
 
 const cases = JSON.parse(fs.readFileSync(CASES_PATH, "utf8")).slice(0, limit);
 if (!cases.length) {
@@ -35,7 +39,7 @@ const rows = [];
 for (const c of cases) {
   const axPath = path.join(PROJECT_DIR, c.axFile);
   const ax = fs.readFileSync(axPath, "utf8");
-  const candidates = selectCandidates(parseAX(ax), c.goal, { max: c.max ?? 40 });
+  const candidates = selectCandidates(parseAX(ax), c.goal, { max: candidateMax ?? c.max ?? 40 });
   let decision;
   let error = null;
   try {
@@ -91,4 +95,5 @@ fs.mkdirSync(reportDir, { recursive: true });
 const reportPath = path.join(reportDir, `p0-report-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
 fs.writeFileSync(reportPath, JSON.stringify({ generatedAt: new Date().toISOString(), accuracy: `${ok.length}/${rows.length}`, p50Ms: p50, tokens, costUsd: cost, rows }, null, 2));
 console.log(`报告：${reportPath}`);
+if (useLaya) shutdownLayaWorkers();
 process.exitCode = ok.length === rows.length ? 0 : 1;

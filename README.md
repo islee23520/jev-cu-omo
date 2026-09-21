@@ -138,6 +138,68 @@ not perfect accuracy. Exact result verification remains mandatory. See
 cutover, and rollback instructions, and [`BENCHMARK.md`](BENCHMARK.md) for the
 recorded 8B/14B comparison.
 
+### Local Laya (experimental open-weight decision backend)
+
+[Laya](https://huggingface.co/convaiinnovations/laya) is a local,
+non-autoregressive typed-decision model. It does not see screenshots and does
+not replace `cua-driver`; it selects among a small set of AX candidates after
+the OmO planner has decided the next step.
+
+Laya 0.3.4 supports Python 3.8-3.12. This Mac's system Python may be newer, so
+install the pinned Python 3.12 environment with:
+
+```bash
+npm run setup-laya
+```
+
+The first prediction downloads the selected Hugging Face checkpoint. Run OmO
+with the English checkpoint for the current English GUI goals:
+
+```bash
+export JEV_CU_DECIDER=laya
+export JEV_CU_LAYA_MODEL=english
+omo --model cpa/gpt-5.6-sol
+```
+
+The execution split is intentional:
+
+- `cpa/gpt-5.6-sol` plans the task, supplies a concrete per-step goal, the
+  authorized action and any text/key resources.
+- Laya selects the target from a bounded AX candidate set. Keep
+  `candidateMax` between 3 and 8; its documented accuracy degrades with large
+  option sets.
+- Local policy gates sensitive target labels.
+- Exact post-action `verify` determines completion. Base Laya's zero-shot
+  `done` and `risk` heads are not used as proof for this GUI domain.
+
+The base English checkpoint is **not a drop-in replacement for TypeSafe Jev**.
+On this repository's 12-case P0 AX benchmark it scored 2/12 with eight
+candidates. Treat it as experimental until it is fine-tuned on the project's
+GUI traces. Use dry-run and exact verification; do not enable unattended real
+execution from the base checkpoint.
+
+Example OmO request shape:
+
+```json
+{
+  "operation": "run",
+  "app": "Calculator",
+  "pid": 123,
+  "windowId": 456,
+  "goal": "Click the digit 7 button.",
+  "stepGoals": ["Click the digit 7 button."],
+  "candidateMax": 5,
+  "dryRun": true,
+  "verify": { "role": "AXStaticText", "value": "7" }
+}
+```
+
+Offline candidate-selection benchmark:
+
+```bash
+npm run p0-laya
+```
+
 ## Verify the installed tool
 
 First ask OmO to observe a dedicated Calculator test window. OmO must use
@@ -240,6 +302,27 @@ wrong selection. A passing mock test is not a substitute for a real backend and
 real macOS GUI verification.
 
 ### Experimental Blender semantic decision benchmark
+
+### Verified Zcode-reviewed face and neck repair
+
+For the canonical connected Seoul Kenshi female mesh, run the verified
+topology-preserving repair:
+
+```bash
+npm run blender-face-repair -- /absolute/path/female-base-symmetric.blend /absolute/output-directory
+```
+
+The command creates a repaired Blend, a machine-readable implementation log,
+and five 900x900 review renders. It verifies the input fingerprint, keeps
+26,440 torso vertices unchanged, preserves the exact topology, and rejects a
+result outside the required structural and proportion bounds. The final tested
+result measured 7.127 head heights and received a PASS from local Zcode/ZAI
+vision (`glm-5.3-flash`). Astra was not used.
+
+See [`docs/BLENDER-FACE-REPAIR.md`](docs/BLENDER-FACE-REPAIR.md) for the exact
+contract, evidence summary, outputs, and limitations.
+
+### Other experimental Blender decision benchmarks
 
 Blender's 3D viewport is not an AX-addressable `jev_cu` application. The
 experimental benchmark therefore gives the local decision backend a bounded

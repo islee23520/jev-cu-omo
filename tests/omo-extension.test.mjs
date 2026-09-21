@@ -82,3 +82,45 @@ test('unverified done is returned as an error rather than a successful task', as
     goal: 'test', verify: { role: 'AXStaticText', value: '42' }, dryRun: false });
   assert.equal(result.isError, true);
 });
+
+test('Laya backend does not request a TypeSafe key', async () => {
+  const previous = process.env.JEV_CU_DECIDER;
+  process.env.JEV_CU_DECIDER = 'laya';
+  try {
+    const tool = createJevTool({
+      createDriver: async () => ({ selectTarget: () => {} }),
+      getKey: () => { throw new Error('must not read TypeSafe key'); },
+      run: async options => ({ status: 'dry_run', decision: await options.decide({
+        goal: 'press 7', app: 'Calculator', candidates: [{ index: 5, role: 'button', label: '7' }],
+      }) }),
+      decide: async input => ({ action: 'click_element', targetIndex: input.candidates[0].index, confidence: 0.9, risk: 0, done: 0 }),
+    });
+    const result = await tool.execute('laya-no-key', { operation: 'run', app: 'Calculator', pid: 1, windowId: 1, goal: 'press 7' });
+    assert.equal(result.details.status, 'dry_run');
+  } finally {
+    if (previous === undefined) delete process.env.JEV_CU_DECIDER; else process.env.JEV_CU_DECIDER = previous;
+  }
+});
+
+test('tool surface exposes a bounded candidate budget for Laya', () => {
+  const tool = createJevTool();
+  assert.equal(tool.parameters.properties.candidateMax.default, 8);
+  assert.equal(tool.parameters.properties.candidateMax.maximum, 20);
+});
+
+test('base Laya blocks real execution unless explicitly enabled', async () => {
+  const previousBackend = process.env.JEV_CU_DECIDER;
+  const previousAllow = process.env.JEV_CU_LAYA_ALLOW_REAL;
+  process.env.JEV_CU_DECIDER = 'laya';
+  delete process.env.JEV_CU_LAYA_ALLOW_REAL;
+  try {
+    const tool = createJevTool({ createDriver: () => { throw new Error('must not bind'); } });
+    await assert.rejects(tool.execute('laya-real', {
+      operation: 'run', app: 'Calculator', pid: 1, windowId: 1, goal: 'press 7', dryRun: false,
+      verify: { role: 'AXStaticText', value: '7' },
+    }), /real execution is disabled/);
+  } finally {
+    if (previousBackend === undefined) delete process.env.JEV_CU_DECIDER; else process.env.JEV_CU_DECIDER = previousBackend;
+    if (previousAllow === undefined) delete process.env.JEV_CU_LAYA_ALLOW_REAL; else process.env.JEV_CU_LAYA_ALLOW_REAL = previousAllow;
+  }
+});

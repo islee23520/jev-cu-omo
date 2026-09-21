@@ -5,6 +5,8 @@
 - [x] 注册 OmO jev_cu 工具；默认 dry-run，明确结果核验，错误不得报告为成功。
 - [x] 独立 OmO 实例加载并实际调用扩展。
 - [ ] 使用真实 TypeSafe Jev API 完成 macOS GUI 质量门槛。
+- [x] 集成本地 Laya 0.3.4 后端、Python 3.12 安装脚本、候选上限和安全门；记录真实 P0 结果。
+- [x] 发布 Zcode 审核的 Blender 女角色脸/颈连续拓扑修复命令与 RED→GREEN 证据。
 - [ ] 全部通过后移除 Jev-like 运行路径，安装扩展和技能，验证、提交并推送。
 
 ## 发布门槛

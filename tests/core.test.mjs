@@ -58,6 +58,12 @@ test("selectCandidates 在 max 很小时仍优先保留按钮", () => {
   assert.ok(candidates.map((c) => c.index).includes(56));
 });
 
+test("selectCandidates 保留单个数字目标用于计算器 shortlist", () => {
+  const ax = fs.readFileSync(new URL("../fixtures/ax/calculator.txt", import.meta.url), "utf8");
+  const candidates = selectCandidates(parseAX(ax), "click the digit 7 button", { max: 3 });
+  assert.ok(candidates.some(candidate => candidate.label.includes("7")), "digit 7 必须进入三个候选");
+});
+
 test("buildContext 只取少量上下文", () => {
   const ctx = buildContext(CALENDAR_AX);
   assert.ok(ctx.includes("Calendar"));
@@ -271,7 +277,7 @@ for (const scenario of [
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), "jev-p0-test-"));
     try {
       fs.mkdirSync(path.join(repo, "scripts"));
-      for (const file of ["p0-eval.mjs", "loop.mjs", "jev-decide.mjs", "qwen-decide.mjs", "policy.mjs"]) {
+      for (const file of ["p0-eval.mjs", "loop.mjs", "jev-decide.mjs", "qwen-decide.mjs", "laya-decide.mjs", "policy.mjs"]) {
         fs.copyFileSync(new URL(`../scripts/${file}`, import.meta.url), path.join(repo, "scripts", file));
       }
       fs.cpSync(new URL("../fixtures/", import.meta.url), path.join(repo, "fixtures"), { recursive: true });

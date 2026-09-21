@@ -83,6 +83,76 @@ omo-jevlike-router 仓库未归档。不能把“当前无运行路径”称为�
 
 当前 fork 代码不依赖 Jev-like。只有完整验收通过后才执行约定的生产替换与清理。
 
+## Local Laya backend validation (2026-09-21)
+
+Laya 0.3.4 was installed on this Mac in a repository-local Python 3.12 virtual
+environment because the system Python 3.14 is outside Laya's published Python
+3.8-3.12 support range. The English checkpoint was downloaded from
+`convaiinnovations/laya` and executed locally on the Apple Silicon CPU.
+
+Architecture validated:
+
+- `cpa/gpt-5.6-sol` is the OmO planning layer. It supplies the concrete step,
+  authorized action, and text/key resources.
+- Laya receives AX text only and selects a target from a bounded candidate set.
+- Local policy evaluates sensitive labels, and exact post-action verification
+  is the only completion proof.
+- Laya base zero-shot `done` and `risk` outputs are not used for this GUI
+  domain. Real execution is disabled unless `JEV_CU_LAYA_ALLOW_REAL=1` is set
+  for an explicit verified experiment.
+
+Measured offline P0 results:
+
+| Configuration | Accuracy | p50 | Input tokens | Cost |
+| --- | ---: | ---: | ---: | ---: |
+| English checkpoint, candidate max 8 | **2/12** | 335 ms | 18,879 | $0 |
+| English checkpoint, candidate max 3 | **5/12** | 222 ms | 12,619 | $0 |
+
+One focused Calendar case with the three relevant buttons selected the correct
+`previous month` target at probability 0.6535, but the full suite shows the
+base checkpoint is not reliable enough for unattended GUI execution. This is
+consistent with Laya's own documentation: the base checkpoint is near chance
+on typed-decision workflows until domain fine-tuning, and large option sets
+degrade accuracy. The integration is functional and reproducible; the model's
+current domain quality gate is **not passed**.
+
+Real Mac evidence:
+
+- A dedicated Calculator window with a two-candidate shortlist produced
+  `planned.targetLabel = "button: 7"` and local policy `proceed` in dry-run.
+- With the explicit one-off `JEV_CU_LAYA_ALLOW_REAL=1` experiment flag, Laya
+  selected and clicked `button: 7`; the fresh AX observation returned
+  `status=done`, `steps=1`, and `verified=true`.
+- In an isolated OmO config, `cpa/gpt-5.6-sol` generated the requested
+  `jev_cu` call. This establishes the exact 5.6 execution split: GPT-5.6 plans
+  the concrete step/action/resources; Laya only ranks the bounded AX shortlist;
+  local policy and exact postcondition verification own risk and completion.
+
+## Zcode-reviewed Blender repair (2026-09-21)
+
+Portable command:
+
+```bash
+npm run blender-face-repair -- /absolute/path/female-base-symmetric.blend /absolute/output-directory
+```
+
+The local ZAI MCP `analyze_image` tool with `glm-5.3-flash` supplied the visual
+RED and GREEN gates. The final output passed the independent structural audit
+and fresh five-view visual review:
+
+- 45,777 / 94,159 / 48,382 vertices/edges/faces, one connected component.
+- Locked torso: 26,440 vertices with exact coordinate digest
+  `aa6d5625b9279046d30c1e8b3a309b56646207cff1ee655530716d52de22d1af`.
+- Topology digest
+  `8c1e401fb351df0b7fef3def31383d5d88ce67600045fcd0f4fa61dc9c03792d`.
+- Rigid face/head: 18,493 vertices, uniform final scale 0.162.
+- Final measured proportion: 7.127175159510203 head heights.
+- Five 900x900 renders; Zcode final verdict PASS.
+- No cut, bridge, weld, remesh, subdivision, decimation, or torso movement.
+
+Gemini was unavailable for this run. Grok was allowed but not needed. **Astra
+was not used.** See [docs/BLENDER-FACE-REPAIR.md](docs/BLENDER-FACE-REPAIR.md).
+
 ## Windows Docker 后端切换验证（2026-09-20）
 
 目标：Docker Compose 容器接管 `127.0.0.1:11435` 的 `qwen3:8b` 服务，原生专用

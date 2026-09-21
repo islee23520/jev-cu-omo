@@ -12,7 +12,11 @@ description: 在 OmO 中用真实 TypeSafe Jev 根据界面文字选择下一步
 
 - 必须已加载本包的 `extension/jev-cu.mjs`，工具名为 `jev_cu`。
 - 先读取 `cua-driver` 技能并检查当前 CLI 文档、守护进程和权限。
-- API key：`TYPESAFE_API_KEY`，或 `JEV_CU_ENV_FILE` 指向的 env 文件；默认
+- 决策后端由 `JEV_CU_DECIDER` 选择：`jev`（默认）、`laya` 或 `qwen`。
+- Laya 首选本地开放权重路径：先运行 `npm run setup-laya`，再设置
+  `JEV_CU_DECIDER=laya` 与 `JEV_CU_LAYA_MODEL=english`。Laya 只在规划器给出的
+  3–8 个 AX 候选中选择目标；规划器负责步骤、动作与输入资源，精确 verify 负责完成判定。
+- TypeSafe API key：`TYPESAFE_API_KEY`，或 `JEV_CU_ENV_FILE` 指向的 env 文件；默认
   `~/.config/jev-cu/typesafe.env`。密钥文件权限 600，不打印值，不提交。
 - OmO 工具不需要 Codex `cua_repl`，不修改全局模型或 provider 设置。
 - 当前支持 Calculator、TextEdit、Calendar。浏览器使用 Aside，不自动扩展白名单。
@@ -25,6 +29,7 @@ description: 在 OmO 中用真实 TypeSafe Jev 根据界面文字选择下一步
 3. 从结果控件定义 `verify` 的精确 role/value，可选 label。按钮的存在不是结果成功。
 4. 新流程先用 `run` 和 `dryRun: true`。这只预览一步，不证明完整任务成功。
 5. 已授权动作才用 `dryRun: false`，必须提供 `verify`。输入值和按键通过 resources 提供。
+   Laya 后端应设置 `candidateMax: 3..8`，并给每步明确 `stepGoals`；不要让 Laya 规划长任务。
 6. 每步重新观测；驱动以快照 token 定位，不能复用失效 token 或以坐标替换目标。
 7. 仅 `done` 且 `verified: true` 为任务成功。模型判断完成、max_steps 和界面变化不够。
 

@@ -28,6 +28,8 @@
 - `resources.text` 用于 type_text / set_value，`resources.key` 用于 press_key。
 - `resources.direction` 用于 scroll。按键参数不能省略为隐含 Return。
 - maxSteps 默认 5、最大 15。每次调用是独立目标，不能把多个阶段伪装成一个已验证结果。
+- Laya 后端使用 `candidateMax`（建议 3–8）约束选项数。GPT-5.6 等规划模型必须通过
+  `plan` / `stepGoals` 提供具体步骤；Laya 只选择当前目标元素，不负责生成计划或文本。
 - 每个目标窗口同时只接受一次工具操作，避免快照互相覆盖。
 - 每次 Jev 请求超时 20 秒，不自动重试；取消后不得继续执行 GUI 动作。
 

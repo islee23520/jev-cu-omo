@@ -3,6 +3,7 @@ import path from 'node:path';
 import { runTask } from '../scripts/loop.mjs';
 import { decide as jevDecide, loadApiKey } from '../scripts/jev-decide.mjs';
 import { decideLocal } from '../scripts/qwen-decide.mjs';
+import { decideLaya } from '../scripts/laya-decide.mjs';
 
 const activeWindows = new Set();
 const supportedActions = new Set(['click_element', 'set_value', 'type_text', 'press_key', 'scroll', 'ask_user']);
@@ -22,11 +23,19 @@ export function createJevTool({
   decide = jevDecide,
   getKey = () => loadApiKey({ envFile: process.env.JEV_CU_ENV_FILE || path.join(os.homedir(), '.config', 'jev-cu', 'typesafe.env') }),
 } = {}) {
-  const useQwen = decide !== jevDecide || process.env.JEV_CU_DECIDER === 'qwen';
+  const configuredBackend = process.env.JEV_CU_DECIDER ?? 'jev';
+  const selectedDecide = decide !== jevDecide
+    ? decide
+    : configuredBackend === 'laya'
+      ? decideLaya
+      : configuredBackend === 'qwen'
+        ? decideLocal
+        : jevDecide;
+  const needsTypeSafeKey = selectedDecide === jevDecide;
   return {
     name: 'jev_cu',
     label: 'Jev Computer Use',
-    description: 'Observe a native macOS window or use real TypeSafe Jev decisions to operate it through cua-driver. Browser tasks use Aside instead. Default dry-run; real execution requires an exact observable verification criterion. Never treats model-reported completion as verified success.',
+    description: 'Observe a native macOS window or use a configured typed decision backend (TypeSafe Jev, local Laya, or local Qwen) to operate it through cua-driver. Browser tasks use Aside instead. Default dry-run; real execution requires an exact observable verification criterion.',
     promptSnippet: 'Native macOS GUI observation and verified Jev-driven actions',
     promptGuidelines: [
       'Use jev_cu observe first to obtain roles, labels and values. Ground verify in the actual observed result control, not a button whose label mentions the desired result.',
@@ -53,6 +62,7 @@ export function createJevTool({
           type: 'object', additionalProperties: false,
           properties: { text: { type: 'string' }, key: { type: 'string' }, direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] } },
         },
+        candidateMax: { type: 'integer', minimum: 2, maximum: 20, default: 8, description: 'Maximum candidates sent to the decision backend. Laya should normally use 3-8.' },
       },
     },
     async execute(toolCallId, params, signal) {
@@ -60,6 +70,9 @@ export function createJevTool({
       if (params.operation === 'run' && !params.goal) throw new Error('goal is required');
       if (params.operation === 'run' && params.dryRun === false && !params.verify) {
         throw new Error('verify is required for real execution');
+      }
+      if (configuredBackend === 'laya' && params.operation === 'run' && params.dryRun === false && process.env.JEV_CU_LAYA_ALLOW_REAL !== '1') {
+        throw new Error('base Laya real execution is disabled; set JEV_CU_LAYA_ALLOW_REAL=1 only for explicit verified experiments');
       }
       const resourceActions = ['click_element', 'wait', 'ask_user', 'scroll'];
       if (params.resources?.text !== undefined) resourceActions.push('type_text', 'set_value');
@@ -80,18 +93,19 @@ export function createJevTool({
           const details = { status: 'observed', ...snapshot };
           return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
         }
-        if (!useQwen) getKey();
+        const apiKey = needsTypeSafeKey ? getKey() : null;
         const result = await run({
           driver, appName: params.app, goal: params.goal, plan: params.plan ?? '',
           dryRun: params.dryRun ?? true, maxSteps: params.maxSteps ?? 5,
+          candidateMax: params.candidateMax ?? (selectedDecide === decideLaya ? 8 : 40),
           allowedApps: ['Calculator', 'TextEdit', 'Calendar'],
           resources, traceDir: defaultTraceDir(), emit: () => {},
           verify: params.verify ? () => matchesVerification(driver.getSnapshot(), params.verify) : undefined,
           decide: async input => {
             if (signal?.aborted) throw new Error('Jev-cu cancelled');
-            const decision = await decide(useQwen
-              ? { ...input, allowedActions: resourceActions }
-              : { ...input, apiKey, maxRetries: 0, timeoutMs: 20_000 });
+            const decision = await selectedDecide(needsTypeSafeKey
+              ? { ...input, apiKey, maxRetries: 0, timeoutMs: 20_000 }
+              : { ...input, allowedActions: resourceActions });
             if (signal?.aborted) throw new Error('Jev-cu cancelled');
             if (!supportedActions.has(decision.action)) throw new Error(`unsupported action: ${decision.action}`);
             if (['set_value', 'type_text'].includes(decision.action) && params.resources?.text === undefined) {
