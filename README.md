@@ -239,6 +239,24 @@ npm run p0
 wrong selection. A passing mock test is not a substitute for a real backend and
 real macOS GUI verification.
 
+### Experimental Blender semantic decision benchmark
+
+Blender's 3D viewport is not an AX-addressable `jev_cu` application. The
+experimental benchmark therefore gives the local decision backend a bounded
+set of semantic head-fit presets and applies the selected preset through
+Blender's Python API. It does not claim visual quality; a human must review the
+output `.blend` and renders.
+
+```bash
+JEV_CU_QWEN_URL=http://127.0.0.1:11435 \
+JEV_CU_QWEN_MODEL=qwen3:8b \
+npm run blender-head-fit -- input.blend output.blend
+```
+
+The JSON result reports the selected preset, decision-model latency, Blender
+application time, and `visualReview: "required"`. The command edits only the
+output file and preserves the input file.
+
 Repository layout:
 
 ```text
