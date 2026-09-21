@@ -1,7 +1,7 @@
 {
-  "name": "jev-cu",
+  "name": "jev-cu-omo",
   "version": "0.1.0",
-  "description": "Jev（TypeSafe System One）决策 + OmO / macOS cua-driver 执行",
+  "description": "Verified native macOS computer use for OmO with typed decisions and cua-driver",
   "private": true,
   "scripts": {
     "p0": "node scripts/p0-eval.mjs",
@@ -13,8 +13,16 @@
     "extensions": ["./extension/jev-cu.mjs"],
     "skills": ["./skill/jev-use"]
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["omo", "computer-use", "cua-driver", "jev"],
+  "author": "islee23520",
+  "homepage": "https://github.com/islee23520/jev-cu-omo#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/islee23520/jev-cu-omo.git"
+  },
+  "bugs": {
+    "url": "https://github.com/islee23520/jev-cu-omo/issues"
+  },
   "license": "ISC",
   "type": "module"
 }

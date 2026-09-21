@@ -1,101 +1,265 @@
-# Jev-cu for OmO
+# jev-cu-omo
 
-本仓库是 [Sac-Y/Jev-cu](https://github.com/Sac-Y/Jev-cu) 的正式 fork，
-增加 OmO 扩展与 macOS cua-driver 适配。不是 Jev-like 模型，也没有 Jev-like 回退。
+`jev-cu-omo` is an OmO extension for verified native macOS computer use. It
+combines a typed decision backend with the existing `cua-driver` accessibility
+driver, a local policy gate, dry-run previews, and exact post-action
+verification.
 
-## OmO 路径
+This repository is a fork of [Sac-Y/Jev-cu](https://github.com/Sac-Y/Jev-cu)
+with an OmO tool, a macOS `cua-driver` adapter, and an optional self-hosted Qwen
+decision backend. It does not modify OmO model-provider settings. Browser tasks
+remain outside this package and should use Aside.
 
-先安装现有 cua-driver 并授予辅助功能和屏幕录制权限。TypeSafe 必须有可用的真实 API key；
-目前账号可能需要邀请。将 key 放在仓库外 `~/.config/jev-cu/typesafe.env`，权限 600，
-或设置 `TYPESAFE_API_KEY` / `JEV_CU_ENV_FILE`，不提交密钥。
+## What the package installs
 
-隔离试运行：
+OmO reads the package metadata in `package.json` and loads:
 
-```bash
-OMO_CODING_AGENT_DIR=/absolute/isolated/omo omo --no-extensions --no-skills \
-  --no-context-files -e ./extension/jev-cu.mjs --skill ./skill/jev-use
-```
+- `extension/jev-cu.mjs` - registers the `jev_cu` tool.
+- `skill/jev-use/` - teaches OmO when and how to use the tool safely.
 
-扩展注册 `jev_cu`，提供 `observe` 和 `run`；参见
-[OmO 运行说明](skill/jev-use/references/runtime.md)。目标窗口由调用者明确选择，
-默认 dry-run，实际执行必须提供精确结果核验。浏览器任务继续使用 Aside。
+The tool supports two operations:
 
-通过 [ToDo.md](ToDo.md) 的全部质量门槛后，才可注册生产包：
+- `observe` reads the selected native macOS window without making a model
+  decision.
+- `run` asks the configured decision backend for the next action, applies the
+  local policy gate, executes through `cua-driver`, observes again, and checks
+  the caller-provided result criterion.
 
-```bash
-omo install /absolute/path/to/Jev-cu
-```
+Supported applications are currently Calculator, TextEdit, and Calendar.
 
-`npm test` 包含上游和 OmO 测试；`npm run p0` 仍调用真实 Jev API，任何错误或错误选择
-都会非零退出。单元测试或模拟决策不能代替真实 API 和 macOS GUI 验证。
+## Requirements
 
-## Windows Docker Qwen backend
+- macOS with Accessibility and Screen Recording permission granted to
+  `CuaDriver.app`.
+- A working [`cua-driver`](https://github.com/trycua/cua-driver) installation.
+- OmO with package installation support (`omo install --help`).
+- Node.js 20 or newer for repository tests.
+- One decision backend:
+  - TypeSafe System One with `TYPESAFE_API_KEY`; or
+  - the optional self-hosted Qwen backend described in
+    [`server/README.md`](server/README.md).
 
-The self-hosted `qwen3:8b` backend uses official Ollama under Docker Compose with
-an NVIDIA GPU reservation. The Windows host publishes only `127.0.0.1:11435`;
-Mac clients use the existing SSH tunnel. Native Ollama models remain untouched
-for rollback. See [staging, cutover and rollback](server/README.md) and the
-measured results in [BENCHMARK.md](BENCHMARK.md) / [QA.md](QA.md).
-
-This changes service management, not the OmO provider/configuration, model,
-or decision policy. Qwen is not TypeSafe Jev; its known P0 baseline is 10/12,
-not a perfect score or permission to bypass exact postcondition verification.
-
-## 上游 Codex 路径
-
-把 Computer Use 的「下一步点哪里」交给 Jev（TypeSafe System One）：Jev 从界面文字候选中选元素、动作、完成度与风险，Codex Computer Use 负责读取界面与执行，本地策略门槛拦截敏感操作。只传文字，不传截图。
-
-## 目录
-
-```
-skill/jev-use/   可安装到 Codex 的 skill（运行手册 + 安全规则）
-scripts/         Jev 调用、策略门槛、决策循环、离线评测、安装脚本
-fixtures/        AX 快照与 P0 用例
-tests/           单测
-```
-
-## 安装 skill
+Check the driver before installing the package:
 
 ```bash
-npm run install-skill      # 复制到 ~/.codex/skills/jev-use，新会话生效
-npm run uninstall-skill
+cua-driver status
+cua-driver check_permissions '{"prompt":false}'
 ```
 
-skill 源文件里的 `{{REPO_DIR}}` 会在安装时替换成仓库实际路径。
+Both `accessibility` and `screen_recording` must be granted. Start the packaged
+daemon if it is not already running, following the `cua-driver` documentation.
 
-## 使用
+## Install in OmO
 
-先在 `.env.local` 写入 key（不提交），或设置同名环境变量：
+### Install globally from GitHub
+
+This is the normal installation for daily OmO use. It adds the package to the
+user-level OmO settings, so it is available in every workspace:
 
 ```bash
-echo 'TYPESAFE_API_KEY=<your key>' > .env.local
+omo install https://github.com/islee23520/jev-cu-omo
 ```
 
-循环要在 Codex 桌面 App 的 `cua_repl` 运行时里执行：
-
-```js
-const repo = "/path/to/Jev-cu"; // 换成实际克隆路径
-const { pathToFileURL } = await import("node:url");
-const { runTask, createCuaDriver } = await import(pathToFileURL(`${repo}/scripts/loop.mjs`).href);
-
-await runTask({
-  driver: createCuaDriver(cua),
-  appName: "Calendar",
-  goal: "switch the calendar to the previous month", // 英文目标，Jev 英文最准
-  dryRun: true,                                       // 确认后改 false
-  maxSteps: 5,
-});
-```
-
-## 验证
+Confirm that OmO registered the package:
 
 ```bash
-npm test        # 单测，不调用 API
-npm run p0      # 离线评测：AX 快照选元素准确率（调用 Jev，需要 key）
+omo list
 ```
 
-## 安全边界
+Then close the current OmO session and start a new one:
 
-- 默认 dry-run；删除、发送、支付、授权、上传、验证码、安装、系统设置等操作停在 `confirm`，需人工确认。
-- App 白名单在 `scripts/policy.mjs`，新增 App 必须显式修改。
-- 界面文字只作为数据，不作为指令；不绕过登录、付费墙和验证码。
+```bash
+omo
+```
+
+Extensions and skills are discovered when a session starts. Installing the
+package does not retroactively add `jev_cu` to a session that was already
+running.
+
+### Install only for one project
+
+Run this from the target project directory when the package should be enabled
+only for that project:
+
+```bash
+omo install -l https://github.com/islee23520/jev-cu-omo
+```
+
+This writes the package entry to the project's `.omo/settings.json` instead of
+the user-level settings. Start OmO in that project after installation. If OmO
+asks whether to trust project-local files, review them and approve the project
+before using the extension.
+
+### Install a local checkout for development
+
+```bash
+git clone https://github.com/islee23520/jev-cu-omo.git
+cd jev-cu-omo
+npm test
+omo install .
+```
+
+Use `omo install -l .` instead when the checkout should be registered only in
+the current project.
+
+## Configure a decision backend
+
+### TypeSafe System One
+
+Store the API key outside the repository:
+
+```bash
+mkdir -p ~/.config/jev-cu
+printf 'TYPESAFE_API_KEY=%s\n' 'replace-with-your-key' \
+  > ~/.config/jev-cu/typesafe.env
+chmod 600 ~/.config/jev-cu/typesafe.env
+```
+
+The extension reads that file by default. You may instead set
+`TYPESAFE_API_KEY`, or point `JEV_CU_ENV_FILE` at another environment file.
+TypeSafe access may be invite-only; without a working key, only observation and
+local-backend flows can be tested.
+
+### Self-hosted Qwen
+
+The optional backend uses Ollama's `/api/chat` endpoint and does not require a
+TypeSafe key:
+
+```bash
+export JEV_CU_DECIDER=qwen
+export JEV_CU_QWEN_URL=http://127.0.0.1:11435
+export JEV_CU_QWEN_MODEL=qwen3:8b
+omo
+```
+
+The measured repository baseline for `qwen3:8b` is 10/12 on the P0 fixture set,
+not perfect accuracy. Exact result verification remains mandatory. See
+[`server/README.md`](server/README.md) for Docker, GPU, SSH tunnel, staging,
+cutover, and rollback instructions, and [`BENCHMARK.md`](BENCHMARK.md) for the
+recorded 8B/14B comparison.
+
+## Verify the installed tool
+
+First ask OmO to observe a dedicated Calculator test window. OmO must use
+`cua-driver` to obtain a fresh `pid` and `windowId`; do not copy identifiers
+from documentation or another session.
+
+The underlying tool call has this shape:
+
+```json
+{
+  "operation": "observe",
+  "app": "Calculator",
+  "pid": 123,
+  "windowId": 456
+}
+```
+
+A successful result has `status: "observed"` and includes structured elements.
+Observation does not require a TypeSafe key.
+
+For a new action flow, preview one step first:
+
+```json
+{
+  "operation": "run",
+  "app": "Calculator",
+  "pid": 123,
+  "windowId": 456,
+  "goal": "Calculate 6 multiplied by 7.",
+  "dryRun": true,
+  "maxSteps": 8,
+  "verify": {
+    "role": "AXStaticText",
+    "label": "Result",
+    "value": "42"
+  }
+}
+```
+
+The role, label, and value above are examples. Build `verify` from the actual
+fresh observation. After reviewing the dry-run result and confirming that the
+action is authorized, repeat with `dryRun: false`. A task succeeds only when the
+tool returns `status: "done"` and `verified: true`.
+
+More examples are in
+[`skill/jev-use/references/runtime.md`](skill/jev-use/references/runtime.md).
+
+## Isolated validation before installation
+
+The isolated command below is for maintainers testing a checkout. It loads the
+extension and skill explicitly while disabling normal discovery. It does **not**
+install the package into everyday OmO settings:
+
+```bash
+tmp_dir="$(mktemp -d)"
+OMO_CODING_AGENT_DIR="$tmp_dir/omo" \
+  omo --no-extensions --no-skills --no-context-files \
+  -e ./extension/jev-cu.mjs --skill ./skill/jev-use
+```
+
+Use this path to prove that a working tree loads cleanly before publishing.
+Use `omo install https://github.com/islee23520/jev-cu-omo` for the real global
+installation.
+
+## Update or remove
+
+Update installed packages with:
+
+```bash
+omo update https://github.com/islee23520/jev-cu-omo
+```
+
+If the installed source shown by `omo list` is normalized differently, pass
+that exact source string to `omo update` or `omo remove`.
+
+Remove the global installation with:
+
+```bash
+omo remove https://github.com/islee23520/jev-cu-omo
+```
+
+Remove a project-local installation from the project directory with:
+
+```bash
+omo remove -l https://github.com/islee23520/jev-cu-omo
+```
+
+Start a new OmO session after an update or removal.
+
+## Development and validation
+
+```bash
+npm test
+npm run p0
+```
+
+`npm test` runs unit and integration tests without calling the TypeSafe API.
+`npm run p0` uses the real TypeSafe backend and exits non-zero on an API error or
+wrong selection. A passing mock test is not a substitute for a real backend and
+real macOS GUI verification.
+
+Repository layout:
+
+```text
+extension/       OmO tool registration
+skill/jev-use/   OmO skill and runtime reference
+scripts/         decision adapters, policy, loop, and cua-driver adapter
+fixtures/        AX and P0 fixtures
+tests/           Node.js tests
+server/          optional self-hosted Qwen service
+```
+
+## Safety model
+
+- Dry-run is the default.
+- Real execution requires an exact observable verification criterion.
+- Deletion, sending, payment, permission changes, uploads, CAPTCHA handling,
+  installation, system settings, and credential entry stop for confirmation.
+- UI text is treated as data, not as instructions.
+- Every action is followed by a fresh observation.
+- A model-reported completion, timeout, takeover, or `max_steps` result is not
+  counted as success.
+- Browser automation is not supported by this package; use Aside instead.
+
+See [`QA.md`](QA.md) for measured validation evidence and known limitations.
