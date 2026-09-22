@@ -10,6 +10,7 @@
     "blender-face-repair": "node scripts/blender-face-repair.mjs",
     "blender-head-fit": "node scripts/blender-head-fit.mjs",
     "blender-vision-autonomous": "node scripts/blender-vision-autonomous.mjs",
+    "qwen-image": "node scripts/qwen-image.mjs",
     "test": "node --test tests/*.test.mjs",
     "install-skill": "node scripts/install-skill.mjs",
     "uninstall-skill": "node scripts/install-skill.mjs --uninstall"

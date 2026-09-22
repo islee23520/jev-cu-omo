@@ -112,6 +112,52 @@ container restart is `docker compose restart ollama`; follow it with API
 verification. `restart: unless-stopped` requires Docker Desktop to be running;
 this migration does not change Windows boot/login startup configuration.
 
+## Qwen-Image-2.1 generation/edit service (opt-in profile)
+
+`qwen-image` is a second service in the same Compose project, started only
+with `--profile qwen-image`. It serves the official pinned Diffusers
+`QwenImage21Pipeline` (`Qwen/Qwen-Image-2.1`), pinned to the merge commit of
+the upstream integration PR (#14804, `6256aa7666...`) because no stable
+diffusers release contains it yet. Defaults: bfloat16, model CPU offload
+(`QWEN_IMAGE_OFFLOAD=sequential` if the 8B text encoder does not fit 16 GB
+VRAM with whole-component offload), 512 px, fixed seed 42, single active
+request (second concurrent request gets `409 busy`).
+
+Isolation contract: host loopback `127.0.0.1:${QWEN_IMAGE_PORT:-11437}` only,
+HuggingFace cache in `./qwen-image-data/cache`, PNG outputs in
+`./qwen-image-data/output`. It never touches `./docker-data`, the native
+`models/` store, or the ollama ports, and has no restart policy — a Docker
+restart never loads a second GPU model.
+
+The first start downloads ~33 GB of weights into the cache bind (run it
+detached and monitor `docker compose logs -f qwen-image` until `/health`
+reports `"status": "ok"`).
+
+```bash
+# stage (from the Mac repo root)
+COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C server compose.yaml qwen-image README.md |
+  ssh windows 'tar xf - -C /e/git/jev-cu-qwen'
+
+# on Windows: build + start (model downloads on first start)
+ssh windows 'cd /e/git/jev-cu-qwen && docker compose --profile qwen-image up -d --build qwen-image'
+ssh windows 'curl -s http://127.0.0.1:11437/health'
+
+# Mac client via SSH tunnel (or run on Windows directly)
+ssh -fN -o ExitOnForwardFailure=yes -L 127.0.0.1:11437:127.0.0.1:11437 windows
+npm run qwen-image -- health
+npm run qwen-image -- generate --prompt 'a small red toy cube on a white table' --seed 42 --out /tmp/qwen-t2i.png
+npm run qwen-image -- edit --prompt 'make the background a light blue gradient' --image /tmp/qwen-t2i.png --seed 7 --out /tmp/qwen-edit.png
+
+# stop after use (cache/output binds are preserved)
+ssh windows 'cd /e/git/jev-cu-qwen && docker compose --profile qwen-image stop qwen-image'
+```
+
+GPU coexistence: the ollama container may keep `qwen3:8b` resident in VRAM
+(~5.3 GB). If a generation OOMs while ollama is resident, either wait for the
+ollama idle unload or restart the ollama container (`docker compose restart
+ollama`) before image work; that restart does not alter its model store or
+digest.
+
 ## Upgrade discipline
 
 No custom image build or extra orchestration is used. Image updates require a

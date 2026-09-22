@@ -1,0 +1,10 @@
+# Official Qwen-Image-2.1 dependency set, pinned.
+# diffusers: merge commit of the official Qwen-Image 2.1 integration
+# (huggingface/diffusers PR #14804); no stable release contains it yet.
+diffusers @ git+https://github.com/huggingface/diffusers.git@6256aa7666cedd47443adc8f82da9a10e110b09c
+transformers==5.17.0
+accelerate==1.15.0
+huggingface_hub==1.32.0
+pillow==12.3.0
+fastapi==0.141.1
+uvicorn==0.53.0

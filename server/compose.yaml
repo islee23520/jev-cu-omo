@@ -33,3 +33,40 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # Opt-in image generation/editing service (official Diffusers
+  # QwenImage21Pipeline). Never starts with the default profile, so the
+  # ollama rollback path and GPU load stay untouched.
+  qwen-image:
+    profiles:
+      - qwen-image
+    build:
+      context: ./qwen-image
+    image: jev-cu-qwen/qwen-image:2.1-diffusers-6256aa7
+    ports:
+      - "127.0.0.1:${QWEN_IMAGE_PORT:-11437}:8000"
+    environment:
+      - HF_HOME=/cache
+      - QWEN_IMAGE_OUTPUT_DIR=/output
+      - QWEN_IMAGE_OFFLOAD=${QWEN_IMAGE_OFFLOAD:-model}
+    volumes:
+      - ./qwen-image-data/cache:/cache
+      - ./qwen-image-data/output:/output
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
