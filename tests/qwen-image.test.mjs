@@ -101,6 +101,26 @@ test('app: official pipeline, bfloat16, cpu offload, 512 default, single-flight'
   assert.match(app, /manual_seed/);
 });
 
+test('app: model revision pinned in code and passed to from_pretrained', async () => {
+  const app = await readText('server/qwen-image/app/main.py');
+  assert.match(app, /MODEL_REVISION = "790c92633540aa0cb11d9abf19eb46d861714758"/);
+  assert.match(app, /revision=MODEL_REVISION/);
+});
+
+test('app: peak VRAM recorded per generation', async () => {
+  const app = await readText('server/qwen-image/app/main.py');
+  assert.match(app, /max_memory_allocated/);
+  assert.match(app, /peak_vram_gb/);
+});
+
+test('readme: upstream commit, model revision and licenses recorded', async () => {
+  const readme = await readText('server/README.md');
+  assert.match(readme, /6256aa7666cedd47443adc8f82da9a10e110b09c/);
+  assert.match(readme, /790c92633540aa0cb11d9abf19eb46d861714758/);
+  assert.match(readme, /qwen-research/);
+  assert.match(readme, /Apache-2\.0/);
+});
+
 test('client: health/generate/edit hit the right endpoints with the right payload', async () => {
   const calls = [];
   const fetchImpl = async (url, init) => {

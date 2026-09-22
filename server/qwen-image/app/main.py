@@ -19,6 +19,8 @@ from PIL import Image
 from pydantic import BaseModel
 
 MODEL_ID = "Qwen/Qwen-Image-2.1"
+# Model snapshot pinned for reproducibility (HF model repo HEAD 2026-09-21).
+MODEL_REVISION = "790c92633540aa0cb11d9abf19eb46d861714758"
 DEFAULT_WIDTH = 512
 DEFAULT_HEIGHT = 512
 DEFAULT_STEPS = int(os.environ.get("QWEN_IMAGE_STEPS", "8"))
@@ -44,7 +46,9 @@ def _load_pipeline():
     global _pipe
     device = "cuda" if torch.cuda.is_available() else "cpu"
     _state["device"] = device
-    pipe = QwenImage21Pipeline.from_pretrained(MODEL_ID, torch_dtype=torch.bfloat16)
+    pipe = QwenImage21Pipeline.from_pretrained(
+        MODEL_ID, revision=MODEL_REVISION, torch_dtype=torch.bfloat16
+    )
     if device == "cuda":
         if OFFLOAD_MODE == "model":
             pipe.enable_model_cpu_offload()
@@ -146,6 +150,9 @@ async def _execute(request: GenerateRequest, edit_image=None):
             pipe = _pipe
             if pipe is None:
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="model still loading")
+            cuda = _state["device"] == "cuda"
+            if cuda:
+                torch.cuda.reset_peak_memory_stats()
             generator = torch.Generator(device=_state["device"]).manual_seed(spec["seed"])
             kwargs = {
                 "prompt": spec["prompt"],
@@ -156,9 +163,11 @@ async def _execute(request: GenerateRequest, edit_image=None):
             }
             if edit_image is not None:
                 kwargs["image"] = edit_image
-            return pipe(**kwargs).images[0]
+            image = pipe(**kwargs).images[0]
+            peak_vram_gb = round(torch.cuda.max_memory_allocated() / 2**30, 2) if cuda else None
+            return image, peak_vram_gb
 
-        image = await asyncio.to_thread(work)
+        image, peak_vram_gb = await asyncio.to_thread(work)
     finally:
         _busy.clear()
         _pipeline_lock.release()
@@ -166,6 +175,10 @@ async def _execute(request: GenerateRequest, edit_image=None):
     image_id = uuid.uuid4().hex[:12]
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
+    log.info(
+        "generation done: id=%s seed=%s %dx%d steps=%s mode=%s peak_vram_gb=%s",
+        image_id, spec["seed"], image.width, image.height, spec["steps"], image.mode, peak_vram_gb,
+    )
     png_bytes = buffer.getvalue()
     filename = f"{image_id}.png"
     try:
@@ -183,6 +196,7 @@ async def _execute(request: GenerateRequest, edit_image=None):
         "mode": image.mode,
         "steps": spec["steps"],
         "seed": spec["seed"],
+        "peak_vram_gb": peak_vram_gb,
         "sha256": hashlib.sha256(png_bytes).hexdigest(),
         "image_base64": base64.b64encode(png_bytes).decode("ascii"),
         "duration_ms": int((time.monotonic() - started) * 1000),

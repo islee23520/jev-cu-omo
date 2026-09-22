@@ -133,6 +133,16 @@ The first start downloads ~33 GB of weights into the cache bind (run it
 detached and monitor `docker compose logs -f qwen-image` until `/health`
 reports `"status": "ok"`).
 
+Pins and licenses (recorded 2026-09-22):
+
+- Upstream integration: huggingface/diffusers commit
+  `6256aa7666cedd47443adc8f82da9a10e110b09c` ("Add Qwen-Image 2.1
+  (#14804)", 2026-09-18) — diffusers code is Apache-2.0.
+- Model: `Qwen/Qwen-Image-2.1` pinned to revision
+  `790c92633540aa0cb11d9abf19eb46d861714758` (HF model repo HEAD,
+  2026-09-21). Model license: `qwen-research` (per the HF model card;
+  research use) — NOT Apache-2.0; generated outputs follow that license.
+
 ```bash
 # stage (from the Mac repo root)
 COPYFILE_DISABLE=1 tar --no-xattrs -cf - -C server compose.yaml qwen-image README.md |
