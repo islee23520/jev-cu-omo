@@ -10,12 +10,15 @@ os.environ.setdefault("USE_TF", "0")
 
 def predict(engine, model, payload):
     started = time.perf_counter()
+    request_id = payload.pop("request_id")
     if model == "router":
         result = engine.predict(payload["state"], payload["questions"])
     else:
         result = engine.predict(payload["state"], payload["questions"])
     result["latencyMs"] = round((time.perf_counter() - started) * 1000)
     result.setdefault("model", f"convaiinnovations/laya:{model}")
+    result["request_id"] = request_id
+    result.setdefault("provenance", {"checkpoint": "unproven", "revision": "unproven", "digest": "unproven"})
     return result
 
 
@@ -32,11 +35,13 @@ def main():
         engine = laya.load("convaiinnovations/laya", subfolder=subfolder)
     print(json.dumps({"ready": True, "model": args.model}), flush=True)
     for line in sys.stdin:
+        request_id = None
         try:
             payload = json.loads(line)
+            request_id = payload.get("request_id")
             print(json.dumps(predict(engine, args.model, payload), ensure_ascii=False), flush=True)
         except Exception as error:
-            print(json.dumps({"error": str(error)}, ensure_ascii=False), flush=True)
+            print(json.dumps({"request_id": request_id, "error": str(error)}, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":

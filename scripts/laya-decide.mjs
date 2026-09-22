@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -33,51 +34,55 @@ function startWorker({ python, model }) {
     stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, USE_TF: '0' },
   });
   const lines = readline.createInterface({ input: child.stdout });
-  const queue = [];
+  const pending = new Map();
   let startupResolve; let startupReject;
   const ready = new Promise((resolve, reject) => { startupResolve = resolve; startupReject = reject; });
-  let started = false;
+  const worker = { child, ready, pending, idleTimer: null, started: false };
+  const rejectPending = error => {
+    for (const request of pending.values()) request.reject(error);
+    pending.clear();
+  };
   lines.on('line', line => {
     let value;
     try { value = JSON.parse(line); } catch { value = { error: `invalid JSON: ${line.slice(0, 200)}` }; }
-    if (!started) {
-      started = true;
+    if (!worker.started) {
+      worker.started = true;
       if (value.ready) startupResolve(value); else startupReject(new Error(value.error ?? 'Laya worker failed to start'));
       return;
     }
-    const next = queue.shift();
-    if (!next) return;
-    if (value.error) next.reject(new Error(`Laya prediction failed: ${value.error}`)); else next.resolve(value);
+    if (typeof value.request_id !== 'string') {
+      const error = new Error('Laya response missing request_id correlation');
+      rejectPending(error);
+      child.kill('SIGTERM');
+      return;
+    }
+    const request = pending.get(value.request_id);
+    if (!request) return;
+    pending.delete(value.request_id);
+    if (value.error) request.reject(new Error(`Laya prediction failed: ${value.error}`)); else request.resolve(value);
   });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr += chunk; if (stderr.length > 16_000) stderr = stderr.slice(-16_000); });
-  child.once('error', error => { startupReject(error); while (queue.length) queue.shift().reject(error); });
+  child.once('error', error => { startupReject(error); rejectPending(error); });
   child.once('close', code => {
     const error = new Error(`Laya worker exited (${code}): ${stderr.trim()}`);
-    startupReject(error); while (queue.length) queue.shift().reject(error);
+    startupReject(error); rejectPending(error);
     workers.delete(`${python}\0${model}`);
   });
-  return { child, ready, queue, idleTimer: null };
+  return worker;
 }
 
 export async function requestLaya(payload, { python = DEFAULT_LAYA_PYTHON, model = DEFAULT_LAYA_MODEL, timeoutMs = Number(process.env.JEV_CU_LAYA_TIMEOUT_MS ?? 180_000) } = {}) {
   const key = `${python}\0${model}`;
   const worker = workers.get(key) ?? startWorker({ python, model });
   workers.set(key, worker);
-  await worker.ready;
   return new Promise((resolve, reject) => {
     if (worker.idleTimer) clearTimeout(worker.idleTimer);
-    const pending = { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } };
-    const timer = setTimeout(() => {
-      const index = worker.queue.indexOf(pending);
-      if (index >= 0) worker.queue.splice(index, 1);
-      reject(new Error(`Laya prediction timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    const originalResolve = pending.resolve;
-    pending.resolve = value => {
-      originalResolve(value);
+    const requestId = randomUUID();
+    const scheduleIdle = () => {
+      if (worker.pending.size) return;
       worker.idleTimer = setTimeout(() => {
-        if (!worker.queue.length) {
+        if (!worker.pending.size) {
           worker.child.stdin.end();
           worker.child.kill('SIGTERM');
           workers.delete(key);
@@ -85,8 +90,39 @@ export async function requestLaya(payload, { python = DEFAULT_LAYA_PYTHON, model
       }, IDLE_MS);
       worker.idleTimer.unref();
     };
-    worker.queue.push(pending);
-    worker.child.stdin.write(`${JSON.stringify(payload)}\n`);
+    const pending = {
+      resolve: value => {
+        clearTimeout(timer);
+        resolve({
+          ...value,
+          requestedModel: model,
+          reportedModel: value.model ?? 'unproven',
+          provenance: value.provenance ?? { checkpoint: 'unproven', revision: 'unproven', digest: 'unproven' },
+        });
+        scheduleIdle();
+      },
+      reject: error => { clearTimeout(timer); reject(error); scheduleIdle(); },
+    };
+    worker.pending.set(requestId, pending);
+    const timer = setTimeout(() => {
+      worker.pending.delete(requestId);
+      if (!worker.started) {
+        worker.child.kill('SIGTERM');
+        workers.delete(key);
+      }
+      reject(new Error(`Laya prediction timed out after ${timeoutMs}ms`));
+      scheduleIdle();
+    }, timeoutMs);
+    worker.ready.then(() => {
+      if (!worker.pending.has(requestId)) return;
+      worker.child.stdin.write(`${JSON.stringify({ ...payload, request_id: requestId })}\n`, error => {
+        if (!error || !worker.pending.delete(requestId)) return;
+        pending.reject(error);
+      });
+    }, error => {
+      if (!worker.pending.delete(requestId)) return;
+      pending.reject(error);
+    });
   });
 }
 
@@ -112,7 +148,11 @@ export async function decideLaya({ goal, app, candidates = [], context = '', rec
     usage: result.usage ?? { input_tokens: 0, output_tokens: 0 },
     latencyMs: result.latencyMs ?? Date.now() - startedAt,
     costUsd: 0,
-    model: result.model ?? 'convaiinnovations/laya', routing: result.routing,
+    model: result.reportedModel ?? result.model ?? 'unproven',
+    requestedModel: result.requestedModel ?? requestOptions.model ?? DEFAULT_LAYA_MODEL,
+    reportedModel: result.reportedModel ?? result.model ?? 'unproven',
+    provenance: result.provenance ?? { checkpoint: 'unproven', revision: 'unproven', digest: 'unproven' },
+    routing: result.routing,
     raw: result,
     laya: { targetConfidence: decision.confidence, targetProbability },
   };

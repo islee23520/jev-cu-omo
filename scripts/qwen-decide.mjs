@@ -85,7 +85,10 @@ export async function decideLocal({
     usage: r.usage,
     latencyMs: r.latencyMs,
     costUsd: r.costUsd,
-    model: r.model,
+    model: r.reportedModel,
+    requestedModel: r.requestedModel,
+    reportedModel: r.reportedModel,
+    provenance: r.provenance,
     raw: r.raw,
   };
 }
@@ -112,23 +115,38 @@ export async function askLocal({
   };
   const startedAt = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer;
   let res;
+  let payload;
   try {
-    res = await fetchImpl(`${endpoint}/api/chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body), signal: controller.signal,
-    });
+    const operation = (async () => {
+      const response = await fetchImpl(`${endpoint}/api/chat`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body), signal: controller.signal,
+      });
+      return { response, payload: await response.json().catch(() => null) };
+    })();
+    ({ response: res, payload } = await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Local Qwen request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]));
   } finally {
     clearTimeout(timer);
   }
   const latencyMs = Date.now() - startedAt;
-  const payload = await res.json().catch(() => null);
   if (!res.ok) {
     const message = payload?.error ?? `HTTP ${res.status}`;
     const err = new Error(`本地 Qwen 决策失败（${latencyMs}ms）：${message}`);
     err.status = res.status;
     throw err;
+  }
+  if (typeof payload?.model === 'string' && payload.model !== model) {
+    throw new Error(`Local Qwen model mismatch: requested ${model}, reported ${payload.model}`);
   }
   let output;
   try {
@@ -146,7 +164,14 @@ export async function askLocal({
       input_tokens: payload.prompt_eval_count ?? 0,
       output_tokens: payload.eval_count ?? 0,
     },
-    model: payload.model ?? model,
+    model: payload.model ?? 'unproven',
+    requestedModel: model,
+    reportedModel: payload.model ?? 'unproven',
+    provenance: {
+      checkpoint: payload.checkpoint ?? 'unproven',
+      revision: payload.revision ?? 'unproven',
+      digest: payload.digest ?? 'unproven',
+    },
     latencyMs,
     costUsd: 0,
     raw: output,
